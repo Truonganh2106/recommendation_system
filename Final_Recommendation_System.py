@@ -2,24 +2,43 @@ import json
 import pandas as pd
 import numpy as np
 import pymongo
+from apscheduler.schedulers.background import BackgroundScheduler
 from bson import ObjectId, json_util
 from sklearn.metrics.pairwise import cosine_similarity
 from flask import Flask, request
 
-mongo_connection_string = "mongodb+srv://commerce:commerce@cluster0.lygmgn5.mongodb.net/commerce?retryWrites=true&w=majority"
 
-# Kết nối với MongoDB Atlas
-client = pymongo.MongoClient(mongo_connection_string)
-# client = pymongo.MongoClient("mongodb://localhost:27017/")
-database = client["commerce"]
-products = pd.DataFrame(list(database["products"].find()))
+#
+# mongo_connection_string = "mongodb+srv://commerce:commerce@cluster0.lygmgn5.mongodb.net/commerce?retryWrites=true&w=majority"
+#     # Kết nối với MongoDB Atlas
+# client = pymongo.MongoClient(mongo_connection_string)
+# database = client["commerce"]
+def connect():
+    client = pymongo.MongoClient("mongodb://localhost:27017/")
+    database = client["admin"]
+
+    dataframe = pd.DataFrame(list(database["product"].find()))
+    return dataframe
+
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(connect, 'interval', minutes=0.2)
+scheduler.start()
+try:
+    while True:
+        pass
+except (KeyboardInterrupt, SystemExit):
+    scheduler.shutdown()
+
+products = connect()
 products.sort_values('rate', inplace=True)
 popular_products = products[products['numberOfReviews'] >= 10]
 final_df = products[products['_id'].isin(popular_products['_id'])]
 pt = final_df.pivot_table(index='_id', columns='category', values='numberOfReviews')
-# print(pt.index)
 pt.replace(np.nan, 0, inplace=True)
 similarity = cosine_similarity(pt)
+
+
 def get_top_rated_products(product_id):
     if ObjectId(product_id) not in products['_id'].unique():
         print(f"Product ID {ObjectId(product_id)} không tồn tại trong danh sách sản phẩm.")
@@ -78,7 +97,9 @@ def recommedation_system(item):
     print(recommended_products_list)
     return recommended_products_list
 
+
 app = Flask(__name__)
+
 
 @app.route('/receive', methods=['POST', 'GET', 'PUT'])
 def receive():
@@ -86,6 +107,7 @@ def receive():
         data = request.json.get("obj_id")
         file_data = recommedation_system(data)
         return file_data
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
